@@ -1,3 +1,4 @@
+import importlib
 import os
 import subprocess
 import sys
@@ -5,30 +6,36 @@ import sys
 # ==========================================
 # 0. Automatic Dependency Installation
 # ==========================================
-REQUIRED_PACKAGES = [
-    "streamlit>=1.30.0",
-    "langchain>=0.2.0",
-    "langchain-community>=0.2.0",
-    "langchain-huggingface>=0.0.1",
-    "langchain-openai>=0.1.0",
-    "faiss-cpu>=1.8.0",
-    "pypdf>=4.0.0",
-    "sentence-transformers>=2.5.0",
-    "python-dotenv>=1.0.0",
-]
+# Mapping package requirement strings to their exact Python module import names
+REQUIRED_PACKAGES = {
+    "streamlit>=1.30.0": "streamlit",
+    "langchain>=0.2.0": "langchain",
+    "langchain-community>=0.2.0": "langchain_community",
+    "langchain-huggingface>=0.0.1": "langchain_huggingface",
+    "langchain-openai>=0.1.0": "langchain_openai",
+    "faiss-cpu>=1.8.0": "faiss",  # Important: import name is 'faiss', not 'faiss_cpu'
+    "pypdf>=4.0.0": "pypdf",
+    "sentence-transformers>=2.5.0": "sentence_transformers",
+    "python-dotenv>=1.0.0": "dotenv",  # Important: import name is 'dotenv'
+}
 
 
 def install_packages():
     """Checks and installs required packages dynamically at runtime."""
-    for package in REQUIRED_PACKAGES:
-        pkg_name = package.split(">=")[0].replace("-", "_")
+    installed_any = False
+    for pkg_req, module_name in REQUIRED_PACKAGES.items():
         try:
-            __import__(pkg_name)
+            importlib.import_module(module_name)
         except ImportError:
-            print(f"Installing missing dependency: {package}...")
+            print(f"Installing missing dependency: {pkg_req}...")
             subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", package]
+                [sys.executable, "-m", "pip", "install", pkg_req]
             )
+            installed_any = True
+
+    if installed_any:
+        # Invalidate import caches so Python immediately recognizes new packages
+        importlib.invalidate_caches()
 
 
 install_packages()
