@@ -6,17 +6,17 @@ import sys
 # ==========================================
 # 0. Automatic Dependency Installation
 # ==========================================
-# Mapping package requirement strings to their exact Python module import names
+# Explicit mapping of PyPI package names to actual Python import names
 REQUIRED_PACKAGES = {
     "streamlit>=1.30.0": "streamlit",
     "langchain>=0.2.0": "langchain",
     "langchain-community>=0.2.0": "langchain_community",
     "langchain-huggingface>=0.0.1": "langchain_huggingface",
     "langchain-openai>=0.1.0": "langchain_openai",
-    "faiss-cpu>=1.8.0": "faiss",  # Important: import name is 'faiss', not 'faiss_cpu'
+    "faiss-cpu>=1.8.0": "faiss",  # Imported as 'faiss', NOT 'faiss_cpu'
     "pypdf>=4.0.0": "pypdf",
     "sentence-transformers>=2.5.0": "sentence_transformers",
-    "python-dotenv>=1.0.0": "dotenv",  # Important: import name is 'dotenv'
+    "python-dotenv>=1.0.0": "dotenv",  # Imported as 'dotenv', NOT 'python_dotenv'
 }
 
 
@@ -34,7 +34,7 @@ def install_packages():
             installed_any = True
 
     if installed_any:
-        # Invalidate import caches so Python immediately recognizes new packages
+        # Invalidate import caches so Python immediately recognizes the new modules
         importlib.invalidate_caches()
 
 
