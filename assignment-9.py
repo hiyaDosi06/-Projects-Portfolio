@@ -1,4 +1,3 @@
-import importlib
 import os
 import subprocess
 import sys
@@ -6,36 +5,33 @@ import sys
 # ==========================================
 # 0. Automatic Dependency Installation
 # ==========================================
-# Explicit mapping of PyPI package names to actual Python import names
+# Map: pip_package_name -> actual importable module name
 REQUIRED_PACKAGES = {
     "streamlit>=1.30.0": "streamlit",
     "langchain>=0.2.0": "langchain",
     "langchain-community>=0.2.0": "langchain_community",
     "langchain-huggingface>=0.0.1": "langchain_huggingface",
     "langchain-openai>=0.1.0": "langchain_openai",
-    "faiss-cpu>=1.8.0": "faiss",  # Imported as 'faiss', NOT 'faiss_cpu'
+    "faiss-cpu>=1.8.0": "faiss",
     "pypdf>=4.0.0": "pypdf",
     "sentence-transformers>=2.5.0": "sentence_transformers",
-    "python-dotenv>=1.0.0": "dotenv",  # Imported as 'dotenv', NOT 'python_dotenv'
+    "python-dotenv>=1.0.0": "dotenv",
 }
 
 
 def install_packages():
     """Checks and installs required packages dynamically at runtime."""
-    installed_any = False
-    for pkg_req, module_name in REQUIRED_PACKAGES.items():
+    for package, module_name in REQUIRED_PACKAGES.items():
         try:
-            importlib.import_module(module_name)
+            __import__(module_name)
         except ImportError:
-            print(f"Installing missing dependency: {pkg_req}...")
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", pkg_req]
-            )
-            installed_any = True
-
-    if installed_any:
-        # Invalidate import caches so Python immediately recognizes the new modules
-        importlib.invalidate_caches()
+            print(f"Installing missing dependency: {package}...")
+            try:
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", package]
+                )
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to install {package}: {e}")
 
 
 install_packages()
@@ -115,10 +111,15 @@ def process_documents(files):
             tmp_file.write(file.read())
             tmp_path = tmp_file.name
 
-        loader = PyPDFLoader(tmp_path)
-        docs = loader.load()
-        documents.extend(docs)
-        os.remove(tmp_path)
+        try:
+            loader = PyPDFLoader(tmp_path)
+            docs = loader.load()
+            documents.extend(docs)
+        finally:
+            os.remove(tmp_path)
+
+    if not documents:
+        raise ValueError("No text could be extracted from the uploaded PDF(s).")
 
     # Text Chunking
     text_splitter = RecursiveCharacterTextSplitter(
@@ -148,6 +149,8 @@ if process_btn and uploaded_files:
                 st.sidebar.success("Vector store built successfully!")
             except Exception as e:
                 st.sidebar.error(f"Error processing files: {str(e)}")
+elif process_btn and not uploaded_files:
+    st.sidebar.warning("Please upload at least one PDF before processing.")
 
 # Initialize Chat History
 if "messages" not in st.session_state:
@@ -168,6 +171,8 @@ if user_query:
         st.warning(
             "Please upload PDF documents and click 'Process & Build Vector Index' first."
         )
+    elif not openai_api_key:
+        st.warning("Please enter your OpenAI API key in the sidebar first.")
     else:
         # Append User Message to UI
         st.session_state.messages.append(
@@ -180,55 +185,69 @@ if user_query:
             with st.spinner(
                 "Searching document context & generating response..."
             ):
-                # Define Prompt Template
-                system_prompt = (
-                    "You are a helpful assistant for question-answering tasks. "
-                    "Use the following pieces of retrieved context to answer "
-                    "the question. If you don't know the answer, say that you "
-                    "don't know. Use three sentences maximum and keep the "
-                    "answer concise.\n\n"
-                    "Context:\n{context}"
-                )
+                try:
+                    # Define Prompt Template
+                    system_prompt = (
+                        "You are a helpful assistant for question-answering tasks. "
+                        "Use the following pieces of retrieved context to answer "
+                        "the question. If you don't know the answer, say that you "
+                        "don't know. Use three sentences maximum and keep the "
+                        "answer concise.\n\n"
+                        "Context:\n{context}"
+                    )
 
-                prompt = ChatPromptTemplate.from_messages([
-                    ("system", system_prompt),
-                    ("human", "{input}"),
-                ])
+                    prompt = ChatPromptTemplate.from_messages([
+                        ("system", system_prompt),
+                        ("human", "{input}"),
+                    ])
 
-                # Setup Retriever & LLM
-                retriever = st.session_state.vectorstore.as_retriever(
-                    search_type="similarity", search_kwargs={"k": 4}
-                )
+                    # Setup Retriever & LLM
+                    retriever = st.session_state.vectorstore.as_retriever(
+                        search_type="similarity", search_kwargs={"k": 4}
+                    )
 
-                llm = ChatOpenAI(
-                    model_name="gpt-3.5-turbo",
-                    temperature=0.0,
-                    openai_api_key=openai_api_key,
-                )
+                    llm = ChatOpenAI(
+                        model_name="gpt-3.5-turbo",
+                        temperature=0.0,
+                        openai_api_key=openai_api_key,
+                    )
 
-                # Create LangChain Retrieval Chain
-                question_answer_chain = create_stuff_documents_chain(
-                    llm, prompt
-                )
-                rag_chain = create_retrieval_chain(
-                    retriever, question_answer_chain
-                )
+                    # Create LangChain Retrieval Chain
+                    question_answer_chain = create_stuff_documents_chain(
+                        llm, prompt
+                    )
+                    rag_chain = create_retrieval_chain(
+                        retriever, question_answer_chain
+                    )
 
-                # Execute Chain
-                response = rag_chain.invoke({"input": user_query})
-                answer = response["answer"]
-                sources = response.get("context", [])
+                    # Execute Chain
+                    response = rag_chain.invoke({"input": user_query})
+                    answer = response["answer"]
+                    sources = response.get("context", [])
 
-                st.write(answer)
+                    st.write(answer)
 
-                # Expandable Source Attribution
-                with st.expander("📚 View Retrieved Document Contexts"):
-                    for idx, doc in enumerate(sources):
-                        st.markdown(
-                            f"**Source {idx+1} (Page {doc.metadata.get('page', 'N/A') + 1}):**"
-                        )
-                        st.caption(doc.page_content[:300] + "...")
+                    # Expandable Source Attribution
+                    with st.expander("📚 View Retrieved Document Contexts"):
+                        for idx, doc in enumerate(sources):
+                            page_num = doc.metadata.get("page")
+                            page_label = (
+                                str(page_num + 1)
+                                if isinstance(page_num, int)
+                                else "N/A"
+                            )
+                            st.markdown(
+                                f"**Source {idx+1} (Page {page_label}):**"
+                            )
+                            st.caption(doc.page_content[:300] + "...")
 
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": answer}
-                )
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": answer}
+                    )
+
+                except Exception as e:
+                    error_msg = f"⚠️ Something went wrong while generating a response: {str(e)}"
+                    st.error(error_msg)
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": error_msg}
+                    )
